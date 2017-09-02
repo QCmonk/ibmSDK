@@ -370,6 +370,8 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
     # run experiments remotely
     jobcodes = []
     for circuit in archive:
+        if circuit == 'Support_Group':
+            continue
         ccirc = archive[circuit]
 
         # check if experiment has any circuits awaiting completion for current
@@ -449,6 +451,8 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
     # instantiate matlab engine
     mateng = matlab.engine.start_matlab()
     for circuit in archive:
+        if circuit == 'Support_Group':
+            continue
         # check if circuit is complete and is compliant with state
         # tomography
         if (archive[circuit].attrs['complete'] == archive[circuit].attrs['total']):

@@ -514,45 +514,48 @@ def processtomography(archive, circuit, mateng, parallel=True):
     # get number of available cores:
     cores = int(os.environ['NUMBER_OF_PROCESSORS'])
     # parallelise problem if requested and can be done in system
+    betapath = 'Support_Group/Process_beta{}'.format(qnum)
     if parallel and cores > 1 and qnum > 1:
         # It is less clear how to use Matabs inbuilt parallelisation for this problem
         # so I opted for implementing it in python. Modify as you see fit.
-        print('------- DISTRIBUTING HYPERDIMENSIONAL OPTIMISATION PROBLEM ACROSS {} CORES -------'.format(cores))
+        
         # perform labmda optimisation sequentially
         lam = mateng.lambdaopt(reconstruct, densitybasis)
-        # perform beta optimisation in parallel
-        # determine work division
-        wrange = labourdiv(dim, cores)
-        # worker list
-        pool = mp.Pool(processes=cores)
-        workers = []
-        for i, partition in enumerate(wrange):
-            workers.append(pool.apply_async(betawork, args=(
-                densitybasis, operatorbasis, partition)))
-        pool.close()
-        pool.join()
 
-        # retrieve results
-        beta = np.zeros((dim**4, dim**4), dtype='complex128')
-        for employee in workers:
-            beta += employee.get()
+        # retrieve beta matrix if already computed else re-compute
+        if betapath in archive:
+            beta = archive['Support_Group']['Process_beta{}'.format(int(qnum))][()]
+        else:
+            print('------- DISTRIBUTING HYPERDIMENSIONAL OPTIMISATION PROBLEM ACROSS {} CORES -------'.format(cores))
+            # perform beta optimisation in parallel if required
+            # determine work division
+            wrange = labourdiv(dim, cores)
+            # worker list
+            pool = mp.Pool(processes=cores)
+            workers = []
+            for i, partition in enumerate(wrange):
+                workers.append(pool.apply_async(betawork, args=(
+                    densitybasis, operatorbasis, partition)))
+            pool.close()
+            pool.join()
+
+            # retrieve results
+            beta = np.zeros((dim**4, dim**4), dtype='complex128')
+            for employee in workers:
+                beta += employee.get()
 
         # compute chi matrix sequentially
         chi = np.asarray(mateng.chiopt(
             numpyarr2matlab(beta), operatorbasis, lam))
-        return chi, np.asarray(operatorbasis), np.asarray(densitybasis)
 
     else:
+        
         chi = np.asarray(mateng.processtomography(
             reconstruct, densitybasis, operatorbasis))
-        # output result
+    # output result
+    return chi, np.asarray(operatorbasis), np.asarray(densitybasis)
 
-        return chi, np.asarray(operatorbasis), np.asarray(densitybasis)
 
-
-#--------------------------------------------------------------------------
-# TO BE IMPLEMENTED
-#--------------------------------------------------------------------------
 
 # computes the beta matrices for process tomography up to the maximum number of qubits 
 # and stores in support groups - GREATLY reduces compute time for process tomography
@@ -613,6 +616,11 @@ def betacompute(qubits=2, parallel=True):
 
 
 #--------------------------------------------------------------------------
+# TO BE IMPLEMENTED
+#--------------------------------------------------------------------------
+
+
+#--------------------------------------------------------------------------
 # CURRENTLY WORKING ON
 #--------------------------------------------------------------------------
 
@@ -620,17 +628,17 @@ def betacompute(qubits=2, parallel=True):
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    betacompute(qubits=2)
-    # mateng = matlab.engine.start_matlab()
-    # with h5py.File(archivepath, 'a') as archive:
-    #     # archive.__delitem__('hadamardq0_simulator')
-    #     try:
-    #         chi, opbasis, denbasis = processtomography(
-    #             archive, 'QPT_hadamard_simulator', mateng)
-    #         print(chi)
-    #     except Exception as e:
-    #         print(e)
+    #betacompute(qubits=2)
+    mateng = matlab.engine.start_matlab()
+    with h5py.File(archivepath, 'a') as archive:
+        # archive.__delitem__('hadamardq0_simulator')
+        try:
+            chi, opbasis, denbasis = processtomography(
+                archive, 'QPT_hadamard_simulator', mateng)
+            print(chi)
+        except Exception as e:
+            print(e)
         
-    #     archive.flush()
-    #     archive.close()
-    #     exit()
+        archive.flush()
+        archive.close()
+        exit()
