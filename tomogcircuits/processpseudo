@@ -1,0 +1,22 @@
+# returns density operator series term constructed out of the Pauli
+# operator basis set. Defaults to matlab compatible output
+def pauliexpand(pauli, matlab=True):
+    
+    # initialise gate
+    gate = 1.0
+
+    for el in pauli:
+        if el == '0':
+            gate = np.kron(gate, gatedict['x'])
+        elif el == '1':
+            gate = np.kron(gate, gatedict['y'])
+        elif el == '2':
+            gate = np.kron(gate, gatedict['z'])
+        elif el == '3':
+            gate = np.kron(gate, gatedict['id'])
+
+    if matlab:
+        import matlab.engine
+        return matlab.double(gate.tolist(), is_complex=True)
+    else:
+        return gate
