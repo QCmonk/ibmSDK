@@ -4,14 +4,20 @@
 # @Last Modified by:   Helios
 # @Last Modified time: 2017-09-01 17:46:11
 
+
+# this entire script is just gross but almost all of the functionality was meant to be one off use, hence...this. 
+
 import os
 import sys
 import h5py
+import matplotlib
 import numpy as np
+import matlab.engine
 from time import gmtime
 import ibmtomography as itm
-import matplotlib
+from itertools import product
 import matplotlib.pyplot as plt
+
 
 # path to experiment data file
 if os.path.isdir('C:\\Users\\Helios'):
@@ -40,6 +46,7 @@ class QCircExp(object):
         self.complete = target.attrs['complete'][()]
         self.total = target.attrs['total'][()]
         self.rawqasm = target['raw_qasm'][()]
+        self.shots = target.attrs['shots'][()]
 
         # check for circuit reconstruction data structures
         if self.complete == self.total:
@@ -78,7 +85,7 @@ def tracedistcrude(m1,m2):
 
 
 # compares actual and simulator results process tomography using some base name
-def comparechiplot(basename, circuits=10, comparison='trace'):
+def comparechiplot(basename, circuits=10, method='diamond'):
     # iterate over different versions and add circuit information to primary data container
     circcollect = []
     for i in range(1, circuits+1):
@@ -95,10 +102,10 @@ def comparechiplot(basename, circuits=10, comparison='trace'):
 
     # compute difference vector using input method
     channeldist = np.asarray([])
-    if comparison == 'trace':
+    if method == 'trace':
         for pair in circcollect:
             channeldist = np.append(channeldist,tracedistcrude(pair[0].chi, pair[1].chi))
-    elif comparison == 'diamond':
+    elif method == 'diamond':
         # import and initialise a matlab engine instance
         import matlab.engine
         mateng = matlab.engine.start_matlab()
@@ -108,14 +115,29 @@ def comparechiplot(basename, circuits=10, comparison='trace'):
             diffchoi = matlab.double(diffchoi.tolist(), is_complex=True)
             channeldist = np.append(channeldist, mateng.dnorm(diffchoi))
     else:
-        print('------- UNKNOWN COMPARISON METHOD {}: ABORTING -------'.format(comparison))
+        print('------- UNKNOWN COMPARISON METHOD {}: ABORTING -------'.format(method))
         exit()
+
+    # compute crude statistical bound lines
+    av = np.mean(channeldist)
+    statdev = 1/np.sqrt(circcollect[0][1].shots)
+    # compute crudely fitted bound lines
     gatenum = list(range(1,len(channeldist)+1))
-    plt.plot(channeldist)
+    bnds = np.poly1d(np.polyfit(gatenum, channeldist, 2))
+    print(statdev)
+    upbnd = bnds(gatenum) + statdev
+    lowbnd = bnds(gatenum) - statdev
+
+    
+    plt.plot(channeldist, label='Distance')
+    plt.plot(upbnd, 'r--', label='Bounds')
+    plt.plot(lowbnd, 'r--')
+    plt.ylim([0,0.1])
     plt.title('Channel distance as a function of gate number for circuit: ' + basename)
     plt.grid(True)
     plt.xlabel('Number of applied random unitaries')
-    plt.ylabel('Channel distance using ' + comparison + ' norm')
+    plt.ylabel('Channel distance using ' + method + ' norm')
+    plt.legend()
     plt.show()
 
 
@@ -365,6 +387,37 @@ def tracenorm(m):
 # TO BE IMPLEMENTED
 #--------------------------------------------------------------------------
 
+# compute the conditional diamond distance of the various gate combinations
+def conditional(archive, base):
+    # initialise matlab engine
+    mateng = matlab.engine.start_matlab()
+    # define basis set
+    gateset = ['H', 'T', 'S','X', 'Y', 'Z']
+    # construct all combinations of the above
+    combs = product(gateset, repeat=2)
+    for iteration in combs:
+        pass
+
+
+def condell(archive, base, item, mateng):
+    # extract gate combination
+    initgate = item[0]
+    fingate = item[1]
+
+    # retrieve required choi matrices
+    combpathhard = base + '_' + initgate + fingate +'_ibmqx2'
+    initpathsim = base + '_' + initgate +'_simulator'
+    finpathhard = base + '_' + fingate + '_ibmqx2'
+
+    combochoihard = archive[combpathhard]['Data_Group']['Choi_matrix'][()]
+    initchoisim = archive[initpathsim]['Data_Group']['Choi_matrix'][()]
+    finchoihard = itm.numpyarr2matlab(archive[finpathhard]['Data_Group']['Choi_matrix'][()])
+
+    # compute inverse of final gate
+    finchoihardinv = np.asarray(mateng.matrixinverse(finchoihard))
+
+    print(finchoihardinv*finchoihard)
+
 
 
 #--------------------------------------------------------------------------
@@ -377,8 +430,5 @@ def tracenorm(m):
 
 if __name__ == '__main__':
     with h5py.File(archivepath, 'a') as archive:
-        #chiplot(archive, '2QPT_SWAP_simulator')
-        #densityplot(archive, 'ProcessTensor_ibmqx2')
-        rho = np.asarray([[1,0],[0,0]])
-        circuit = QCircExp(archive['1QPT_H_simulator'], 'Pauli Gate')
-        rhoplot(circuit.choi)
+        pass
+        #comparechiplot('1QPT_U', circuits=9, method='diamond')

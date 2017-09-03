@@ -248,7 +248,7 @@ def statetomography_ML(archive, circuit, mateng, goal='state'):
         return density
 
     # perform state tomgraphy on preperation circuit sets
-    if goal == 'process':
+    elif goal == 'process':
         # initialise density matrix set
         density_set = []
         # length of tomography identifier string
@@ -401,9 +401,7 @@ def numpy2matlabvec(array):
 
 #
 def numpyarr2matlab(array):
-    from functools import partial
-    # define mappable function with complex argument
-    mapmatlab = partial(matlab.double, is_complex=True)
+    array = np.asarray(array)
     # perform conversion
     return matlab.double(array.tolist(), is_complex=True)
 
@@ -615,6 +613,25 @@ def betacompute(qubits=2, parallel=True):
             exit()
 
 
+# DANGER FUNCTIONALITY, USE AT OWN RISK
+# deletes a particular item (e.g Data_Group) from every group in root directory
+def _blockdelete(group):
+    with h5py.File(archivepath, 'a') as archive: 
+        for item in archive:
+            if group in archive[item]:
+                archive[item].__delitem__(group)
+
+# add default shots if parameter does not exist (assume lowest shot number ever used)
+def _shotadd(shotnum=4096):
+    with h5py.File(archivepath, 'a') as archive:
+        for item in archive:
+            if archive[item].attrs.__contains__('shots'):
+                continue
+            else:
+                archive[item].attrs['shots'] = shotnum
+
+
+
 #--------------------------------------------------------------------------
 # TO BE IMPLEMENTED
 #--------------------------------------------------------------------------
@@ -628,17 +645,17 @@ def betacompute(qubits=2, parallel=True):
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    #betacompute(qubits=2)
-    mateng = matlab.engine.start_matlab()
-    with h5py.File(archivepath, 'a') as archive:
-        # archive.__delitem__('hadamardq0_simulator')
-        try:
-            chi, opbasis, denbasis = processtomography(
-                archive, 'QPT_hadamard_simulator', mateng)
-            print(chi)
-        except Exception as e:
-            print(e)
+    _shotadd()
+    # mateng = matlab.engine.start_matlab()
+    # with h5py.File(archivepath, 'a') as archive:
+    #     # archive.__delitem__('hadamardq0_simulator')
+    #     try:
+    #         chi, opbasis, denbasis = processtomography(
+    #             archive, 'QPT_hadamard_simulator', mateng)
+    #         print(chi)
+    #     except Exception as e:
+    #         print(e)
         
-        archive.flush()
-        archive.close()
-        exit()
+    #     archive.flush()
+    #     archive.close()
+    #     exit()

@@ -112,6 +112,8 @@ def archivetest(archive):
 def codedist(archive, codes):
     # iterate through archive
     for circuit in archive:
+        if circuit == 'Support_Group':
+            continue
         # check for complete case
         if archive[circuit].attrs['complete'] < archive[circuit].attrs['total']:
             # iterate over first len(codes) circuits with ready status
