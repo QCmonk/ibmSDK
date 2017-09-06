@@ -2,10 +2,11 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-09-01 17:46:11
+# @Last Modified time: 2017-09-06 20:10:19
 
 
-# this entire script is just gross but almost all of the functionality was meant to be one off use, hence...this. 
+# this entire script is just gross but almost all of the functionality was
+# meant to be one off use, hence...this.
 
 import os
 import sys
@@ -36,39 +37,45 @@ class QCircExp(object):
     Defines a custom data structure to store specific quantum circuits and associated 
     reconstruction information
     """
-    def __init__(self, target, circuit):
+
+    def __init__(self, archive, circuit):
         # store circuit name
         self.name = circuit
         # retrieve and store circuit attributes
-        self.device = target.attrs['device'].decode('ascii')
-        self.tomography = target.attrs['tomography'].decode('ascii')
-        self.qubits = target.attrs['qubits'][()]
-        self.complete = target.attrs['complete'][()]
-        self.total = target.attrs['total'][()]
-        self.rawqasm = target['raw_qasm'][()]
-        self.shots = target.attrs['shots'][()]
+        self.device = archive[circuit].attrs['device'].decode('ascii')
+        self.tomography = archive[circuit].attrs['tomography'].decode('ascii')
+        self.qubits = archive[circuit].attrs['qubits'][()]
+        self.complete = archive[circuit].attrs['complete'][()]
+        self.total = archive[circuit].attrs['total'][()]
+        self.rawqasm = archive[circuit]['raw_qasm'][()]
+        self.shots = archive[circuit].attrs['shots'][()]
 
         # check for circuit reconstruction data structures
         if self.complete == self.total:
             # store key information from either
             if self.tomography == 'state':
-                self.finalstate = target['tomography_ML'][()]
+                self.finalstate = archive[circuit]['tomography_ML'][()]
             elif self.tomography == 'process':
                 # extract Chi matrix
-                self.chi = np.asarray(target['Data_Group']['Process_matrix'][()])
+                self.chi = np.asarray(archive[circuit]['Data_Group'][
+                                      'Process_matrix'][()])
                 # Kraus operators
-                self.kraus = np.asarray(target['Data_Group']['Kraus_set'][()])
+                self.kraus = np.asarray(
+                    archive[circuit]['Data_Group']['Kraus_set'][()])
                 # operator basis used in reconstruction
-                self.opbasis = np.asarray(target['Data_Group']['Operator_basis_set'][()])
+                self.opbasis = np.asarray(archive[circuit]['Data_Group'][
+                                          'Operator_basis_set'][()])
                 # preperation basis used in reconstruction
-                self.prepbasis = np.asarray(target['Data_Group']['Preperation_basis_set'][()])
+                self.prepbasis = np.asarray(archive[circuit]['Data_Group'][
+                                            'Preperation_basis_set'][()])
                 # Choi matrix
-                self.choi = np.asarray(target['Data_Group']['Choi_matrix'][()])
+                self.choi = np.asarray(
+                    archive[circuit]['Data_Group']['Choi_matrix'][()])
                 # extract tomography dataset
                 self.tomographyset = []
-                for state in target['tomography_ML']:
-                    self.tomographyset.append(target['tomography_ML'][state][()])
-
+                for state in archive[circuit]['tomography_ML']:
+                    self.tomographyset.append(
+                        archive[circuit]['tomography_ML'][state][()])
 
 
 # imports target data from archive and converts to analysis class
@@ -77,26 +84,28 @@ def circuitimport(circuit):
         # create shortcut variable and initialise class
         return QCircExp(archive[circuit], circuit)
 
-#compute trace distance of two matrices using good ol trace norm
-def tracedistcrude(m1,m2):
+# compute trace distance of two matrices using good ol trace norm
+
+
+def tracedistcrude(m1, m2):
     dist = 0.5*np.trace(np.sqrt(np.asmatrix(m1-m2).H*(m1-m2)))
     return np.real(dist)
 
 
-
 # compares actual and simulator results process tomography using some base name
 def comparechiplot(basename, circuits=10, method='diamond'):
-    # iterate over different versions and add circuit information to primary data container
+    # iterate over different versions and add circuit information to primary
+    # data container
     circcollect = []
     for i in range(1, circuits+1):
         # simulator path
-        simname = basename + '{}'.format(i) + '_simulator'  
+        simname = basename + '{}'.format(i) + '_simulator'
         # equivalent hardware path
         hardname = basename + '{}'.format(i) + '_ibmqx2'
         # construct circuit classes
         simexp = circuitimport(simname)
         hardexp = circuitimport(hardname)
-        # store as immutable type  
+        # store as immutable type
         circcollect.append(tuple([simexp, hardexp]))
     circcollect = np.asarray(circcollect)
 
@@ -104,7 +113,8 @@ def comparechiplot(basename, circuits=10, method='diamond'):
     channeldist = np.asarray([])
     if method == 'trace':
         for pair in circcollect:
-            channeldist = np.append(channeldist,tracedistcrude(pair[0].chi, pair[1].chi))
+            channeldist = np.append(
+                channeldist, tracedistcrude(pair[0].chi, pair[1].chi))
     elif method == 'diamond':
         # import and initialise a matlab engine instance
         import matlab.engine
@@ -122,18 +132,18 @@ def comparechiplot(basename, circuits=10, method='diamond'):
     av = np.mean(channeldist)
     statdev = 1/np.sqrt(circcollect[0][1].shots)
     # compute crudely fitted bound lines
-    gatenum = list(range(1,len(channeldist)+1))
+    gatenum = list(range(1, len(channeldist)+1))
     bnds = np.poly1d(np.polyfit(gatenum, channeldist, 2))
     print(statdev)
     upbnd = bnds(gatenum) + statdev
     lowbnd = bnds(gatenum) - statdev
 
-    
     plt.plot(channeldist, label='Distance')
     plt.plot(upbnd, 'r--', label='Bounds')
     plt.plot(lowbnd, 'r--')
-    plt.ylim([0,0.1])
-    plt.title('Channel distance as a function of gate number for circuit: ' + basename)
+    plt.ylim([0, 0.1])
+    plt.title(
+        'Channel distance as a function of gate number for circuit: ' + basename)
     plt.grid(True)
     plt.xlabel('Number of applied random unitaries')
     plt.ylabel('Channel distance using ' + method + ' norm')
@@ -142,36 +152,40 @@ def comparechiplot(basename, circuits=10, method='diamond'):
 
 
 def tracenormcompare(basename, circuits=10, method='sim'):
-    # iterate over different versions and add circuit information to primary data container
+    # iterate over different versions and add circuit information to primary
+    # data container
     circcollect = []
     for i in range(1, circuits+1):
         # simulator path
-        simname = basename + '{}'.format(i) + '_simulator'  
+        simname = basename + '{}'.format(i) + '_simulator'
         # equivalent hardware path
         hardname = basename + '{}'.format(i) + '_ibmqx2'
         # construct circuit classes
         simexp = circuitimport(simname)
 
         hardexp = circuitimport(hardname)
-        # store as immutable type  
+        # store as immutable type
         circcollect.append(tuple([simexp, hardexp]))
     circcollect = np.asarray(circcollect)
 
     # compare trace norm of density matricies for two states
     tracedist = np.asarray([])
-    if method=='sim':
+    if method == 'sim':
         for pair in circcollect:
             #print(tracenorm(pair[0].tomographyset[0] - pair[0].tomographyset[1]))
-            tracedist = np.append(tracedist, tracenorm(pair[0].tomographyset[0] - pair[0].tomographyset[1]))
+            tracedist = np.append(tracedist, tracenorm(
+                pair[0].tomographyset[0] - pair[0].tomographyset[1]))
     else:
         for pair in circcollect:
-            tracedist = np.append(tracedist, tracenorm(pair[1].tomographyset[0] - pair[1].tomographyset[1]))
+            tracedist = np.append(tracedist, tracenorm(
+                pair[1].tomographyset[0] - pair[1].tomographyset[1]))
 
-    gatenum = list(range(1,len(tracedist)+1))
+    gatenum = list(range(1, len(tracedist)+1))
     plt.plot(gatenum, tracedist)
-    plt.title('Trace norm as a function of hadamard gates applied for circuit: ' + basename)
+    plt.title(
+        'Trace norm as a function of hadamard gates applied for circuit: ' + basename)
     plt.grid(True)
-    plt.ylim([1.8,2.1])
+    plt.ylim([1.8, 2.1])
     plt.xlabel('Number of applied gates')
     plt.ylabel('distance using tracenorm')
     plt.legend('Actual', 'Ideal')
@@ -179,7 +193,8 @@ def tracenormcompare(basename, circuits=10, method='sim'):
 
 
 def tracenormcomparetmp(circuits=10, method='sim'):
-    # iterate over different versions and add circuit information to primary data container
+    # iterate over different versions and add circuit information to primary
+    # data container
     circcollect = []
     for i in range(1, circuits+1):
         # hardware path
@@ -202,19 +217,23 @@ def tracenormcomparetmp(circuits=10, method='sim'):
     tracedist = np.asarray([])
 
     for group in circcollect:
-        average0 = group[0].tomographyset[0] + group[1].tomographyset[0] + group[2].tomographyset[0] + group[3].tomographyset[0]
+        average0 = group[0].tomographyset[0] + group[1].tomographyset[0] + \
+            group[2].tomographyset[0] + group[3].tomographyset[0]
         average0 = average0/4.0
-        average1 = group[0].tomographyset[1] + group[1].tomographyset[1] + group[2].tomographyset[1] + group[3].tomographyset[1]
+        average1 = group[0].tomographyset[1] + group[1].tomographyset[1] + \
+            group[2].tomographyset[1] + group[3].tomographyset[1]
         average1 = average1/4.0
 
         tracedist = np.append(tracedist, tracenorm(average0 - average1))
 
-    gatenum = list(range(1,len(tracedist)+1))
+    gatenum = list(range(1, len(tracedist)+1))
     plt.plot(gatenum, tracedist, label='Actual', linewidth=3.0)
-    plt.title('Trace norm as a function of hadamard gates applied for circuit: 1QPT_Hadamard')
+    plt.title(
+        'Trace norm as a function of hadamard gates applied for circuit: 1QPT_Hadamard')
     plt.grid(True)
-    plt.ylim([1.8,2.05])
-    plt.plot( gatenum, [2.0]*len(tracedist), label='Ideal', linewidth=3.0, ls='dashed')
+    plt.ylim([1.8, 2.05])
+    plt.plot(gatenum, [2.0]*len(tracedist),
+             label='Ideal', linewidth=3.0, ls='dashed')
     plt.xlabel('Number of applied gates')
     plt.ylabel('$|| \Lambda(|0><0|) - \Lambda(|1><1|)||_1$')
     matplotlib.rcParams.update({'font.size': 22})
@@ -325,6 +344,7 @@ def densityplot(archive, circuit, method="ML", save=False):
     plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
     plt.show()
 
+
 def chiplot(archive, circuit):
     import matplotlib.cm as cm
     import matplotlib.pyplot as plt
@@ -339,7 +359,8 @@ def chiplot(archive, circuit):
 
     # instantiate new figure
     fig = plt.gcf()
-    fig.canvas.set_window_title('Process matrix for circuit {}'.format(circuit))
+    fig.canvas.set_window_title(
+        'Process matrix for circuit {}'.format(circuit))
     #rax = Axes3D(fig)
     rax = fig.add_subplot(121, projection='3d')
     iax = fig.add_subplot(122, projection='3d')
@@ -377,10 +398,10 @@ def chiplot(archive, circuit):
     plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
     plt.show()
 
+
 def tracenorm(m):
     import numpy.linalg
     return np.sum(np.abs(numpy.linalg.eigh(m)[0]))
-
 
 
 #--------------------------------------------------------------------------
@@ -392,7 +413,7 @@ def conditional(archive, base):
     # initialise matlab engine
     mateng = matlab.engine.start_matlab()
     # define basis set
-    gateset = ['H', 'T', 'S','X', 'Y', 'Z']
+    gateset = ['H', 'T', 'S', 'X', 'Y', 'Z']
     # construct all combinations of the above
     combs = product(gateset, repeat=2)
     for iteration in combs:
@@ -405,30 +426,71 @@ def condell(archive, base, item, mateng):
     fingate = item[1]
 
     # retrieve required choi matrices
-    combpathhard = base + '_' + initgate + fingate +'_ibmqx2'
-    initpathsim = base + '_' + initgate +'_simulator'
+    combpathhard = base + '_' + initgate + fingate + '_ibmqx2'
+    initpathsim = base + '_' + initgate + '_simulator'
     finpathhard = base + '_' + fingate + '_ibmqx2'
 
     combochoihard = archive[combpathhard]['Data_Group']['Choi_matrix'][()]
     initchoisim = archive[initpathsim]['Data_Group']['Choi_matrix'][()]
-    finchoihard = itm.numpyarr2matlab(archive[finpathhard]['Data_Group']['Choi_matrix'][()])
+    finchoihard = itm.numpyarr2matlab(
+        archive[finpathhard]['Data_Group']['Choi_matrix'][()])
 
     # compute inverse of final gate
     finchoihardinv = np.asarray(mateng.matrixinverse(finchoihard))
 
-    print(finchoihardinv*finchoihard)
-
-
+    diffchoi = itm.numpyarr2matlab(combochoihard*finchoihardinv - initchoisim)
+    dist = mateng.dnorm(diffchoi)
+    print(dist)
 
 #--------------------------------------------------------------------------
 # CURRENTLY WORKING ON
 #--------------------------------------------------------------------------
 
+# applies the map described by the process tensor
+
+
+def choitensor(archive, circuit, rho):
+    pass
+
+
+# computes the partial trace of m \in \mathcal{H^n}, tracing out subsystems not in sys
+# why must you make my life so difficult numpy?
+def partialtrace(m, sys):
+    # type enforcement
+    m = np.asarray(m)
+    # get tensor dimensions
+    qnum = int(np.log2(len(m)))
+    # compute dimensions of tensor
+    tshape = (2,)*2*qnum
+    # reshape to tensor
+    mtensor = m.reshape((tshape))
+    # compute dimensions to trace over
+    index1, index2 = sys[0], sys[0] + qnum
+    del sys[0]
+    newdim = 2**(qnum-1)
+    # compute reduced density matrix via recursion
+    if len(sys) > 0:
+        # trace out target subsystem (repeated reshaping is a bit rough but its not worth the fix time) 
+        mtensor = np.trace(mtensor, axis1=index1, axis2=index2).reshape((newdim, newdim))
+        # adjust subsequent target dimensions with shallow copy
+        sys[:] = [i-1 for i in sys]
+        # by the power of recursion
+        mtensor = partialtrace(mtensor, sys)
+    else:
+        # bottom of the pile, compute and pass up the chain
+        mtensor = np.trace(mtensor, axis1=index1, axis2=index2).reshape((newdim, newdim))
+    return mtensor
 
 
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    with h5py.File(archivepath, 'a') as archive:
-        pass
-        #comparechiplot('1QPT_U', circuits=9, method='diamond')
+    rho = np.kron(np.kron([[0.5, 0.5], [0.5, 0.5]], [
+                  [1, 0], [0, 0]]), [[0, 0], [0, 1]])
+    print(partialtrace(rho, [1, 2]))
+    # with h5py.File(archivepath, 'a') as archive:
+    #circuit = QCircExp(archive, '2QPT_SWAP_ibmqx2')
+    # rhoplot(circuit.kraus[-1])
+    #condell(archive, '1QPT', ['X', 'X'], mateng)
+    #densityplot(archive, 'ProcessTensor3_simulator')
+    #comparechiplot('1QPT_U', circuits=9, method='diamond')
