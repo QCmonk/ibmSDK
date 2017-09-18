@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-09-06 20:10:19
+# @Last Modified time: 2017-09-18 11:24:03
 
 
 # this entire script is just gross but almost all of the functionality was
@@ -82,7 +82,7 @@ class QCircExp(object):
 def circuitimport(circuit):
     with h5py.File(archivepath, 'a') as archive:
         # create shortcut variable and initialise class
-        return QCircExp(archive[circuit], circuit)
+        return QCircExp(archive, circuit)
 
 # compute trace distance of two matrices using good ol trace norm
 
@@ -123,7 +123,7 @@ def comparechiplot(basename, circuits=10, method='diamond'):
         for pair in circcollect:
             diffchoi = pair[0].choi - pair[1].choi
             diffchoi = matlab.double(diffchoi.tolist(), is_complex=True)
-            channeldist = np.append(channeldist, mateng.dnorm(diffchoi))
+            channeldist = np.append(channeldist, mateng.dnorm2(diffchoi))
     else:
         print('------- UNKNOWN COMPARISON METHOD {}: ABORTING -------'.format(method))
         exit()
@@ -241,7 +241,7 @@ def tracenormcomparetmp(circuits=10, method='sim'):
     plt.show()
 
 
-def rhoplot(rho, save=False):
+def rhoplot(rho, axislabels=None, save=False):
     import matplotlib.cm as cm
     import matplotlib.pyplot as plt
     import matplotlib.colors as colors
@@ -261,6 +261,12 @@ def rhoplot(rho, save=False):
     # set titles
     rax.title.set_text('Real$(\\rho)$')
     iax.title.set_text('Imag$(\\rho)$')
+    # apply custom labelling
+    if axislabels is not None:
+        rax.set_xticklabels(axislabels)
+        rax.set_yticklabels(axislabels)
+        iax.set_xticklabels(axislabels)
+        iax.set_yticklabels(axislabels)
 
     # dimension of space
     dim = np.shape(realrho)[0]
@@ -273,8 +279,8 @@ def rhoplot(rho, save=False):
     # create bar widths
     dx = 0.5*np.ones_like(z)
     dy = dx.copy()
-    dzr = np.abs(realrho.flatten())
-    dzi = np.abs(imagrho.flatten())
+    dzr = realrho.flatten()
+    dzi = imagrho.flatten()
 
     # compute colour matrix for real matrix and set axes bounds
     norm = colors.Normalize(dzr.min(), dzr.max())
@@ -288,8 +294,56 @@ def rhoplot(rho, save=False):
     # plot image
     rax.bar3d(x, y, z, dx, dy, dzr, color=rcolours)
     iax.bar3d(x, y, z, dx, dy, dzi, color=icolours)
-    plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
+    #plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
     plt.show()
+
+def condplot(errors, axislabels=None, save=False):
+    import matplotlib.cm as cm
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as colors
+    from mpl_toolkits.mplot3d import Axes3D
+
+    # extract real and imaginary components of density matrix
+
+    # instantiate new figure
+    fig = plt.gcf()
+    fig.canvas.set_window_title('Density Plot')
+    #rax = Axes3D(fig)
+    rax = fig.add_subplot(111, projection='3d')
+
+    # set titles
+    rax.title.set_text('Conditional Error Rates')
+    # apply custom labelling
+    if axislabels is not None:
+        rax.set_xticklabels(axislabels)
+        rax.set_yticklabels(axislabels)
+
+    # dimension of space
+    dim = np.shape(errors)[0]
+    # create indexing vectors
+    x, y = np.meshgrid(range(0, dim), range(0, dim), indexing='ij')
+    x = x.flatten('F')
+    y = y.flatten('F')
+    z = np.zeros_like(x)
+
+    # create bar widths
+    dx = 0.5*np.ones_like(z)
+    dy = dx.copy()
+    dzr = errors.flatten()
+
+    # compute colour matrix for real matrix and set axes bounds
+    norm = colors.Normalize(dzr.min(), dzr.max())
+    rcolours = cm.Reds(norm(dzr))
+    rax.set_zlim3d([0, np.max(dzr)])
+    rax.set_xlabel('$V$', fontsize=20)
+    rax.set_ylabel('$U$', fontsize=20)
+
+
+    # plot image
+    rax.bar3d(x, y, z, dx, dy, dzr, color=rcolours)
+    #plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
+    plt.show()
+
 
 
 def densityplot(archive, circuit, method="ML", save=False):
@@ -326,8 +380,8 @@ def densityplot(archive, circuit, method="ML", save=False):
     # create bar widths
     dx = 0.5*np.ones_like(z)
     dy = dx.copy()
-    dzr = np.abs(realrho.flatten())
-    dzi = np.abs(imagrho.flatten())
+    dzr = realrho.flatten()
+    dzi = imagrho.flatten()
 
     # compute colour matrix for real matrix and set axes bounds
     norm = colors.Normalize(dzr.min(), dzr.max())
@@ -343,6 +397,11 @@ def densityplot(archive, circuit, method="ML", save=False):
     iax.bar3d(x, y, z, dx, dy, dzi, color=icolours)
     plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
     plt.show()
+
+# IBM arbitrary unitary gate
+def ibmu3(theta, phi, lmbda):
+    return np.asarray([[np.cos(theta/2), -np.exp(1j*lmbda)*np.sin(theta/2)],
+                       [np.exp(1j*phi)*np.sin(theta/2), np.exp(1j*lmbda + 1j*phi)*np.cos(theta/2)]])
 
 
 def chiplot(archive, circuit):
@@ -404,93 +463,145 @@ def tracenorm(m):
     return np.sum(np.abs(numpy.linalg.eigh(m)[0]))
 
 
-#--------------------------------------------------------------------------
-# TO BE IMPLEMENTED
-#--------------------------------------------------------------------------
+# compute A form of Choi state (also computes the choi state if given the A form)
+def choi2A(choi):
+    # retrieve dimension
+    dim = len(choi)
+    # reshape dimension
+    sdim = int(np.sqrt(dim))
+    loui = np.asarray(choi)
+    return np.transpose(loui.reshape([sdim, sdim, sdim, sdim]), [0, 2, 1, 3]).reshape([dim, dim])
+
 
 # compute the conditional diamond distance of the various gate combinations
-def conditional(archive, base):
+def conditional(archive):
     # initialise matlab engine
     mateng = matlab.engine.start_matlab()
     # define basis set
-    gateset = ['H', 'T', 'S', 'X', 'Y', 'Z']
+    gateset = ['X', 'Y', 'Z','T', 'H', 'S', 'CX']
+    #gateset = ['X','Z','CX']
     # construct all combinations of the above
-    combs = product(gateset, repeat=2)
-    for iteration in combs:
-        pass
+    #combs = product(gateset, repeat=2)
+
+    errormatrix = np.zeros([len(gateset)]*2)
+    for num1, iter1 in enumerate(gateset):
+        for num2, iter2 in enumerate(gateset):
+            try:
+                errormatrix[num1][num2] = condell(archive, [iter1, iter2], mateng)
+            # catch incomplete combinations
+            except KeyError:
+                errormatrix[num1][num2] = 0.0
+    return errormatrix, gateset
 
 
-def condell(archive, base, item, mateng):
+
+# Computes the conditional distance of an operator 
+def condell(archive, item, mateng):
     # extract gate combination
     initgate = item[0]
     fingate = item[1]
 
-    # retrieve required choi matrices
-    combpathhard = base + '_' + initgate + fingate + '_ibmqx2'
-    initpathsim = base + '_' + initgate + '_simulator'
-    finpathhard = base + '_' + fingate + '_ibmqx2'
+    # generate circuit paths (this entire function is so shit)
+    if initgate == 'CX':
+        ibmcomb = '2QPT' + '_' + initgate + fingate + '_ibmqx2'
+        ibminit = '2QPT' + '_' + initgate + '_ibmqx2'
+        simfin = '1QPT' + '_' + fingate + '_simulator'
+        twoflag = 1
+    elif fingate == 'CX':
+        ibmcomb = '2QPT' + '_' + initgate + fingate + '_ibmqx2'
+        simfin = '2QPT' + '_' + fingate + '_simulator'
+        ibminit = '1QPT' + '_' + initgate + '_ibmqx2'
+        twoflag = 2
+    else:
+        ibmcomb = '1QPT' + '_' + initgate + fingate + '_ibmqx2'
+        simfin = '1QPT' + '_' + fingate + '_simulator'
+        ibminit = '1QPT' + '_' + initgate + '_ibmqx2'
+        twoflag= 0
 
-    combochoihard = archive[combpathhard]['Data_Group']['Choi_matrix'][()]
-    initchoisim = archive[initpathsim]['Data_Group']['Choi_matrix'][()]
-    finchoihard = itm.numpyarr2matlab(
-        archive[finpathhard]['Data_Group']['Choi_matrix'][()])
+    # generate everything from the Kraus set because mapping A form to higher dimensional A form is hard
+    if twoflag == 1:
+        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(archive[simfin]['Data_Group']['Kraus_set'][()],targets=2))
+        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group']['Kraus_set'][()],rep='loui')
+    elif twoflag == 2:
+        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(archive[simfin]['Data_Group']['Kraus_set'][()]))
+        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group']['Kraus_set'][()],rep='loui', targets=2)
+    else:
+        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group']['Kraus_set'][()],rep='loui')
+        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(archive[simfin]['Data_Group']['Kraus_set'][()]))
 
-    # compute inverse of final gate
-    finchoihardinv = np.asarray(mateng.matrixinverse(finchoihard))
 
-    diffchoi = itm.numpyarr2matlab(combochoihard*finchoihardinv - initchoisim)
-    dist = mateng.dnorm(diffchoi)
-    print(dist)
+    comboAhard = itm.kraus2choi(archive[ibmcomb]['Data_Group']['Kraus_set'][()], rep='loui')
+    
+    # compute inverse of the A form of initial map
+    B = np.asarray(mateng.matrixinverse(itm.numpyarr2matlab(initAhard)))
+    # compute actual distance of gate
+    actual = itm.numpyarr2matlab(choi2A(np.dot(comboAhard,B)))
+    dist = float(mateng.dnorm(actual, simchoifin))
+    return dist
+
+
+
+
+#--------------------------------------------------------------------------
+# TO BE IMPLEMENTED
+#--------------------------------------------------------------------------
+
+
+
+# applies the map described by the process tensor
+def choitensor(archive, circuit, rho):
+    pass
+
+
+# extracts the map associated with time step Z in the Sudarshan B form of the process tensor
+def processextract(archive, circuit, subsystem):
+    pass
+
+
 
 #--------------------------------------------------------------------------
 # CURRENTLY WORKING ON
 #--------------------------------------------------------------------------
 
-# applies the map described by the process tensor
-
-
-def choitensor(archive, circuit, rho):
-    pass
-
-
-# computes the partial trace of m \in \mathcal{H^n}, tracing out subsystems not in sys
-# why must you make my life so difficult numpy?
-def partialtrace(m, sys):
-    # type enforcement
-    m = np.asarray(m)
-    # get tensor dimensions
-    qnum = int(np.log2(len(m)))
-    # compute dimensions of tensor
-    tshape = (2,)*2*qnum
-    # reshape to tensor
-    mtensor = m.reshape((tshape))
-    # compute dimensions to trace over
-    index1, index2 = sys[0], sys[0] + qnum
-    del sys[0]
-    newdim = 2**(qnum-1)
-    # compute reduced density matrix via recursion
-    if len(sys) > 0:
-        # trace out target subsystem (repeated reshaping is a bit rough but its not worth the fix time) 
-        mtensor = np.trace(mtensor, axis1=index1, axis2=index2).reshape((newdim, newdim))
-        # adjust subsequent target dimensions with shallow copy
-        sys[:] = [i-1 for i in sys]
-        # by the power of recursion
-        mtensor = partialtrace(mtensor, sys)
-    else:
-        # bottom of the pile, compute and pass up the chain
-        mtensor = np.trace(mtensor, axis1=index1, axis2=index2).reshape((newdim, newdim))
-    return mtensor
-
+# computes distance of a given process tensor from that of the closest markovian process
+# using the chosen distance metric: quantum relative entropy or tracenorm (only included for thoroughness)
+def markovdist(ptensor, metric='qre'):
+    # compute dimensionality of sysem (corresponds to number of timesteps)
+    dim = len(ptensor)
+    # compute systems that need to be traced out for each subsystem starting from last time step
+    # assumes no initial correlations! 
+    
 
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    rho = np.kron(np.kron([[0.5, 0.5], [0.5, 0.5]], [
-                  [1, 0], [0, 0]]), [[0, 0], [0, 1]])
-    print(partialtrace(rho, [1, 2]))
-    # with h5py.File(archivepath, 'a') as archive:
+    mateng = matlab.engine.start_matlab()
+    with h5py.File(archivepath, 'a') as archive:
+        errors, labels = conditional(archive)
+        condplot(errors,labels)
+
+        #rhoplot(archive['2QPT_Single_Test_simulator']['Data_Group']['Choi_matrix'][()])
+        #choiA = itm.numpyarr2matlab(choi2A(itm.partialtrace(archive['ProcessTensor_TestID_k0_simulator']['tomography_ML'][()], [0,3])))
+        #choiAB = itm.numpyarr2matlab(choi2A(itm.partialtrace(archive['ProcessTensor_TestID_k2_simulator']['tomography_ML'][()], [0,3])))
+        #rhoplot(np.asarray(mateng.louiestimate(choiAB, choiA)))
+        # gives T
+        #rhoplot(2*itm.partialtrace(choi, [1,2]))
+
+        # gives S
+        #rhoplot(2*itm.partialtrace(choi, [0,3]))
+
+        # gives T
+        #rhoplot(2*itm.partialtrace(choi, [1,2,3]))
+
+        # gives S
+        #rhoplot(2*itm.partialtrace(choi, [0,2,4]))
+
+        #rhoplot(archive['1QPT_I_simulator']['Data_Group']['Choi_matrix'])
+
+        # with h5py.File(archivepath, 'a') as archive:
     #circuit = QCircExp(archive, '2QPT_SWAP_ibmqx2')
     # rhoplot(circuit.kraus[-1])
-    #condell(archive, '1QPT', ['X', 'X'], mateng)
+        # computes 
+        #condell(archive, ['Z', 'CX'], mateng)
     #densityplot(archive, 'ProcessTensor3_simulator')
     #comparechiplot('1QPT_U', circuits=9, method='diamond')

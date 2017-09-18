@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-08-29 13:09:17
+# @Last Modified time: 2017-09-13 11:49:56
 
 
 import os
@@ -360,34 +360,46 @@ def mapcompute(chi, operatorbasis):
             kraus[i] += np.sqrt(D[i])*operatorbasis[j]*U[i][j]
     return kraus
 
+
+
+
 # converts the kraus represention of a channel to the Choi form
-
-
-def kraus2choi(kraus, rep='choi'):
+def kraus2choi(kraus, rep='choi', targets=1):
     # compute dimension of system
-    dim = kraus[0].shape[0]
-    # initialise choi matrix
-    liou = np.zeros([dim**2, dim**2], dtype='complex128')
+    if targets==1:
+        dim = kraus[0].shape[0]
+    else:
+        dim = (2**targets)
+    # initialise A form
+    loui = np.zeros([dim**2]*2, dtype='complex128')
     # compute liouville representation of Kraus operator
     for i in kraus:
-        liou += np.kron(i.conj(), i)
+        if targets == 1:
+            loui += np.kron(i.conj(), i)
+        else:
+            loui += np.kron(np.kron(i, np.eye(2)).conj(),np.kron(i, np.eye(2)))
     # return appropriate representation
-    if rep == 'liou':
-        return liou
+    if rep == 'loui':
+        return loui
     else:
         # permute to Choi representation
-        choi = liou.reshape([dim, dim, dim, dim])
+        choi = loui.reshape([dim, dim, dim, dim])
         choi = np.transpose(choi, [0, 2, 1, 3])
         choi = choi.reshape([dim**2, dim**2])
         return choi
 
 
+
+
 # compute effect of a CPTP map
 def CPTP(kraus, rho):
+    
     nrho = np.zeros(rho.shape, dtype='complex128')
     for i in kraus:
         nrho += np.dot(i, np.dot(rho, i.conj()))
     return nrho
+
+
 
 
 # formats a numpy array into a matlab compatible vector structure
@@ -613,6 +625,52 @@ def betacompute(qubits=2, parallel=True):
             exit()
 
 
+# computes the partial trace of m \in \mathcal{H^n}, tracing out subsystems not in sys
+# why must you make my life so difficult numpy?
+def partialtrace(m, sys):
+    # type enforcement
+    m = np.asarray(m)
+    # get tensor dimensions
+    qnum = int(np.log2(len(m)))
+    # compute dimensions of tensor
+    tshape = (2,)*2*qnum
+    # reshape to tensor
+    mtensor = m.reshape((tshape))
+    # compute dimensions to trace over
+    index1, index2 = sys[0], sys[0] + qnum
+    del sys[0]
+    newdim = 2**(qnum-1)
+    # compute reduced density matrix via recursion
+    if len(sys) > 0:
+        # trace out target subsystem (repeated reshaping is a bit rough but its not worth the fix time) 
+        mtensor = np.trace(mtensor, axis1=index1, axis2=index2).reshape((newdim, newdim))
+        # adjust subsequent target dimensions with shallow copy
+        sys[:] = [i-1 for i in sys]
+        # by the power of recursion
+        mtensor = partialtrace(mtensor, sys)
+    else:
+        # bottom of the pile, compute and pass up the chain
+        mtensor = np.trace(mtensor, axis1=index1, axis2=index2).reshape((newdim, newdim))
+    return mtensor
+
+
+
+
+
+# computes the output of a quantum channel given the input rho and the maps B form
+def choimap(choi, rho):
+    # compute dimensionality of system
+    dimr = len(rho)
+    dimc = len(choi)
+    # compute joint input state
+    hinput = np.kron(np.eye(dimr), rho.T)
+    # compute subsystems to trace out
+    subsys = [i for i in range(dimr//2, dimr)]
+    # trace out input dimensions for final state
+    return partialtrace(np.dot(hinput, choi), subsys)
+
+
+
 # DANGER FUNCTIONALITY, USE AT OWN RISK
 # deletes a particular item (e.g Data_Group) from every group in root directory
 def _blockdelete(group):
@@ -645,17 +703,18 @@ def _shotadd(shotnum=4096):
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    _shotadd()
-    # mateng = matlab.engine.start_matlab()
+    pass
     # with h5py.File(archivepath, 'a') as archive:
-    #     # archive.__delitem__('hadamardq0_simulator')
-    #     try:
-    #         chi, opbasis, denbasis = processtomography(
-    #             archive, 'QPT_hadamard_simulator', mateng)
-    #         print(chi)
-    #     except Exception as e:
+    # #     # archive.__delitem__('hadamardq0_simulator')
+    #      try:
+    #         import ibmanalysis as ibma
+    #         rho = np.kron(np.asarray([[1,0],[0,0]]),np.asarray([[0,0],[0,1]]))
+    #         choi = archive['2QPT_CX_ibmqx2']['Data_Group']['Choi_matrix']
+    #         ibma.rhoplot(rho)
+    #         ibma.rhoplot(choimap(choi, rho))
+    #      except Exception as e:
     #         print(e)
-        
-    #     archive.flush()
-    #     archive.close()
-    #     exit()
+    #         archive.flush()
+    #         archive.close()
+    #         exit()
+

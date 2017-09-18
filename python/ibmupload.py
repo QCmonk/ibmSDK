@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-08-31 14:08:05
+# @Last Modified time: 2017-09-12 19:02:01
 
 
 import os
@@ -379,6 +379,7 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
         # check if experiment has any circuits awaiting completion for current
         # circuit
         if ccirc.attrs['complete'] < ccirc.attrs['total']:
+            print('------- RETRIEVING MEASUREMENT STATISTICS FOR CIRCUIT: {} -------'.format(circuit))
             device = ccirc.attrs['device'].decode('ascii')
 
             # iterate over archive circuits, handling status as needed:
@@ -461,7 +462,7 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
             path = '/' + circuit + '/tomography_' + tomography
             # check if tomography already performed
             if path not in archive:
-                    # perform state tomography
+                # perform state tomography
                 if archive[circuit].attrs['tomography'].decode('ascii') == 'state':
                     print(
                         '------- PERFORMING STATE TOMOGRAPHY ON CIRCUIT: {} -------'.format(circuit))
@@ -502,6 +503,8 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
                     kraus = itm.mapcompute(chi, opbasis)
                     # compute Choi matrix representation
                     choi = itm.kraus2choi(kraus)
+                    # compute A form
+                    aform = itm.kraus2choi(kraus, rep='loui')
                     # create data group
                     datagroup = archive[circuit].create_group('Data_Group')
                     # add computed chi matrix to archive
@@ -510,6 +513,8 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
                     datagroup.create_dataset('Kraus_set', data=kraus)
                     # add Choi matrix
                     datagroup.create_dataset('Choi_matrix', data=choi)
+                    # add A matrix 
+                    datagroup.create_dataset('A_form', data=aform)
                     # add operator basis used to compute above
                     datagroup.create_dataset(
                         'Operator_basis_set', data=opbasis)
