@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-09-18 11:24:03
+# @Last Modified time: 2017-09-20 20:09:36
 
 
 # this entire script is just gross but almost all of the functionality was
@@ -297,6 +297,7 @@ def rhoplot(rho, axislabels=None, save=False):
     #plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
     plt.show()
 
+
 def condplot(errors, axislabels=None, save=False):
     import matplotlib.cm as cm
     import matplotlib.pyplot as plt
@@ -338,12 +339,10 @@ def condplot(errors, axislabels=None, save=False):
     rax.set_xlabel('$V$', fontsize=20)
     rax.set_ylabel('$U$', fontsize=20)
 
-
     # plot image
     rax.bar3d(x, y, z, dx, dy, dzr, color=rcolours)
     #plt.ticklabel_format(style='sci', axis='z', scilimits=(0, 0))
     plt.show()
-
 
 
 def densityplot(archive, circuit, method="ML", save=False):
@@ -399,6 +398,8 @@ def densityplot(archive, circuit, method="ML", save=False):
     plt.show()
 
 # IBM arbitrary unitary gate
+
+
 def ibmu3(theta, phi, lmbda):
     return np.asarray([[np.cos(theta/2), -np.exp(1j*lmbda)*np.sin(theta/2)],
                        [np.exp(1j*phi)*np.sin(theta/2), np.exp(1j*lmbda + 1j*phi)*np.cos(theta/2)]])
@@ -463,7 +464,8 @@ def tracenorm(m):
     return np.sum(np.abs(numpy.linalg.eigh(m)[0]))
 
 
-# compute A form of Choi state (also computes the choi state if given the A form)
+# compute A form of Choi state (also computes the choi state if given the
+# A form)
 def choi2A(choi):
     # retrieve dimension
     dim = len(choi)
@@ -478,7 +480,7 @@ def conditional(archive):
     # initialise matlab engine
     mateng = matlab.engine.start_matlab()
     # define basis set
-    gateset = ['X', 'Y', 'Z','T', 'H', 'S', 'CX']
+    gateset = ['X', 'Y', 'Z', 'T', 'H', 'S', 'CX']
     #gateset = ['X','Z','CX']
     # construct all combinations of the above
     #combs = product(gateset, repeat=2)
@@ -487,15 +489,15 @@ def conditional(archive):
     for num1, iter1 in enumerate(gateset):
         for num2, iter2 in enumerate(gateset):
             try:
-                errormatrix[num1][num2] = condell(archive, [iter1, iter2], mateng)
+                errormatrix[num1][num2] = condell(
+                    archive, [iter1, iter2], mateng)
             # catch incomplete combinations
             except KeyError:
                 errormatrix[num1][num2] = 0.0
     return errormatrix, gateset
 
 
-
-# Computes the conditional distance of an operator 
+# Computes the conditional distance of an operator
 def condell(archive, item, mateng):
     # extract gate combination
     initgate = item[0]
@@ -516,30 +518,82 @@ def condell(archive, item, mateng):
         ibmcomb = '1QPT' + '_' + initgate + fingate + '_ibmqx2'
         simfin = '1QPT' + '_' + fingate + '_simulator'
         ibminit = '1QPT' + '_' + initgate + '_ibmqx2'
-        twoflag= 0
+        twoflag = 0
 
-    # generate everything from the Kraus set because mapping A form to higher dimensional A form is hard
+    # generate everything from the Kraus set because mapping A form to higher
+    # dimensional A form is hard
     if twoflag == 1:
-        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(archive[simfin]['Data_Group']['Kraus_set'][()],targets=2))
-        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group']['Kraus_set'][()],rep='loui')
+        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(
+            archive[simfin]['Data_Group']['Kraus_set'][()], targets=2))
+        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group'][
+                                   'Kraus_set'][()], rep='loui')
     elif twoflag == 2:
-        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(archive[simfin]['Data_Group']['Kraus_set'][()]))
-        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group']['Kraus_set'][()],rep='loui', targets=2)
+        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(
+            archive[simfin]['Data_Group']['Kraus_set'][()]))
+        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group'][
+                                   'Kraus_set'][()], rep='loui', targets=2)
     else:
-        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group']['Kraus_set'][()],rep='loui')
-        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(archive[simfin]['Data_Group']['Kraus_set'][()]))
+        initAhard = itm.kraus2choi(archive[ibminit]['Data_Group'][
+                                   'Kraus_set'][()], rep='loui')
+        simchoifin = itm.numpyarr2matlab(itm.kraus2choi(
+            archive[simfin]['Data_Group']['Kraus_set'][()]))
 
+    comboAhard = itm.kraus2choi(archive[ibmcomb]['Data_Group'][
+                                'Kraus_set'][()], rep='loui')
 
-    comboAhard = itm.kraus2choi(archive[ibmcomb]['Data_Group']['Kraus_set'][()], rep='loui')
-    
     # compute inverse of the A form of initial map
     B = np.asarray(mateng.matrixinverse(itm.numpyarr2matlab(initAhard)))
     # compute actual distance of gate
-    actual = itm.numpyarr2matlab(choi2A(np.dot(comboAhard,B)))
+    actual = itm.numpyarr2matlab(choi2A(np.dot(comboAhard, B)))
     dist = float(mateng.dnorm(actual, simchoifin))
     return dist
 
+# flattens a list of lists into a depth one list
 
+
+def listflatten(lists):
+    return [item for sublist in lists for item in sublist]
+
+
+# computes distance of a given process tensor from that of the closest markovian process
+# using the chosen distance metric: quantum relative entropy or tracenorm
+# (only included for thoroughness)
+def markovdist(ptensor, subsystems, metric='qre'):
+    # compute dimensionality of sysem (corresponds to number of timesteps)
+    mptensor = 1.0
+    # compute perms for later as partial trace deletes elements in subsys -
+    # should I change that?
+    perms = listflatten(subsystems)
+    for item in subsystems:
+        mptensor = np.kron(mptensor, itm.partialtrace(ptensor, item))
+
+    # permute B form to match reconstructed markovian tensor
+    ptensor = subsyspermute(ptensor, perms, [2, 2, 2, 2])
+    # compute distance using chosen metric
+    if metric == 'qre':
+        # compute quantum relative entrop
+        from scipy.linalg import logm
+        return np.trace(np.dot(ptensor, (logm(ptensor)/np.log(2) - logm(mptensor)/np.log(2))))
+    elif metric == 'trnm':
+        # compute trace norm
+        return tracenorm(ptensor, mptensor)
+    else:
+        print('Unknown metric')
+        return np.inf
+
+# permutes the subsystems of a density matrix with dimensions dims
+# according to perm
+
+
+def subsyspermute(rho, perm, dims):
+    # get dimensions of system
+    d = np.shape(rho)
+    # get number of subsystems
+    sys = len(dims)
+    # perform permutation
+    perm = [(sys - 1 - i) for i in perm[-1::-1]]
+    perm = listflatten([perm, [sys + j for j in perm]])
+    return np.transpose(rho.reshape(dims[-1::-1]*2), perm).reshape(d)
 
 
 #--------------------------------------------------------------------------
@@ -547,61 +601,39 @@ def condell(archive, item, mateng):
 #--------------------------------------------------------------------------
 
 
-
 # applies the map described by the process tensor
 def choitensor(archive, circuit, rho):
     pass
 
 
-# extracts the map associated with time step Z in the Sudarshan B form of the process tensor
+# extracts the map associated with time step Z in the Sudarshan B form of
+# the process tensor
 def processextract(archive, circuit, subsystem):
     pass
-
 
 
 #--------------------------------------------------------------------------
 # CURRENTLY WORKING ON
 #--------------------------------------------------------------------------
 
-# computes distance of a given process tensor from that of the closest markovian process
-# using the chosen distance metric: quantum relative entropy or tracenorm (only included for thoroughness)
-def markovdist(ptensor, metric='qre'):
-    # compute dimensionality of sysem (corresponds to number of timesteps)
-    dim = len(ptensor)
-    # compute systems that need to be traced out for each subsystem starting from last time step
-    # assumes no initial correlations! 
-    
+
+
+
+
+
 
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    mateng = matlab.engine.start_matlab()
     with h5py.File(archivepath, 'a') as archive:
-        errors, labels = conditional(archive)
-        condplot(errors,labels)
-
-        #rhoplot(archive['2QPT_Single_Test_simulator']['Data_Group']['Choi_matrix'][()])
-        #choiA = itm.numpyarr2matlab(choi2A(itm.partialtrace(archive['ProcessTensor_TestID_k0_simulator']['tomography_ML'][()], [0,3])))
-        #choiAB = itm.numpyarr2matlab(choi2A(itm.partialtrace(archive['ProcessTensor_TestID_k2_simulator']['tomography_ML'][()], [0,3])))
-        #rhoplot(np.asarray(mateng.louiestimate(choiAB, choiA)))
-        # gives T
-        #rhoplot(2*itm.partialtrace(choi, [1,2]))
-
-        # gives S
-        #rhoplot(2*itm.partialtrace(choi, [0,3]))
-
-        # gives T
-        #rhoplot(2*itm.partialtrace(choi, [1,2,3]))
-
-        # gives S
-        #rhoplot(2*itm.partialtrace(choi, [0,2,4]))
-
-        #rhoplot(archive['1QPT_I_simulator']['Data_Group']['Choi_matrix'])
-
-        # with h5py.File(archivepath, 'a') as archive:
-    #circuit = QCircExp(archive, '2QPT_SWAP_ibmqx2')
-    # rhoplot(circuit.kraus[-1])
-        # computes 
-        #condell(archive, ['Z', 'CX'], mateng)
-    #densityplot(archive, 'ProcessTensor3_simulator')
-    #comparechiplot('1QPT_U', circuits=9, method='diamond')
+        ptensor2 = choi2A(archive['ProcessTensorCorrelatedSwap5_simulator']['tomography_ML'][()])
+        ptensor4 = choi2A(archive['ProcessTensorCorrelatedSwap4_simulator']['tomography_ML'][()])
+        mateng = matlab.engine.start_matlab()
+        permute = np.asarray(mateng.permutecompute(itm.numpyarr2matlab(ptensor2),itm.numpyarr2matlab(ptensor4)))
+        #iden = itm.partialtrace(ptensor, [1,2])
+        #SWAP = archive['2QPT_SWAP_simulator']['Data_Group']['Process_matrix'][()]
+    
+        rhoplot(permute)
+        #ptensor = archive['ProcessTensorSimulatedCorrelations_simulator']['tomography_ML'][()]
+        #sgate = archive['1QPT_S_simulator']['Data_Group']['Choi_matrix'][()]
+        #print(markovdist(ptensor, [[1, 2], [0, 3]]))

@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-09-13 11:49:56
+# @Last Modified time: 2017-09-20 18:16:04
 
 
 import os
@@ -390,7 +390,6 @@ def kraus2choi(kraus, rep='choi', targets=1):
 
 
 
-
 # compute effect of a CPTP map
 def CPTP(kraus, rho):
     
@@ -625,13 +624,15 @@ def betacompute(qubits=2, parallel=True):
             exit()
 
 
-# computes the partial trace of m \in \mathcal{H^n}, tracing out subsystems not in sys
+# computes the partial trace of m \in \mathcal{H^n}, tracing out subsystems in sys
 # why must you make my life so difficult numpy?
 def partialtrace(m, sys):
     # type enforcement
     m = np.asarray(m)
+    # sort subsystems
+    sys = sorted(sys)
     # get tensor dimensions
-    qnum = int(np.log2(len(m)))
+    qnum = int(round(np.log2(len(m))))
     # compute dimensions of tensor
     tshape = (2,)*2*qnum
     # reshape to tensor
@@ -652,7 +653,6 @@ def partialtrace(m, sys):
         # bottom of the pile, compute and pass up the chain
         mtensor = np.trace(mtensor, axis1=index1, axis2=index2).reshape((newdim, newdim))
     return mtensor
-
 
 
 
@@ -690,6 +690,28 @@ def _shotadd(shotnum=4096):
 
 
 
+# computes distance of a given process tensor from that of the closest markovian process
+# using the chosen distance metric: quantum relative entropy or tracenorm (only included for thoroughness)
+def markovdist(ptensor, subsystems, metric='qre'):
+    # compute dimensionality of sysem (corresponds to number of timesteps)
+    mptensor = 1.0
+    for item in subsystems:
+        mptensor = np.kron(mptensor,partialtrace(ptensor, item))
+    return mptensor
+    # compute distance using chosen metric
+    if metric == 'qre':
+        # compute quantum relative entrop
+        from scipy.linalg import logm
+        return np.trace(np.dot(ptensor,(logm(ptensor) - logm(mptensor))))
+    elif metric == 'trnm':
+        # compute trace norm
+        return tracenorm(ptensor, mptensor)
+    else:
+        print('Unknown metric')
+        return np.inf
+
+
+
 #--------------------------------------------------------------------------
 # TO BE IMPLEMENTED
 #--------------------------------------------------------------------------
@@ -703,7 +725,10 @@ def _shotadd(shotnum=4096):
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    pass
+    #_blockdelete('Data_Group')
+    testing = np.kron([[0.5,-0.5],[-0.5,0.5]],[[0,0],[0,1]])
+    testing = np.kron(testing, testing)
+    print( markovdist(testing, [[0,1], [2,3]]) - testing)
     # with h5py.File(archivepath, 'a') as archive:
     # #     # archive.__delitem__('hadamardq0_simulator')
     #      try:
