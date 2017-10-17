@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-09-20 20:09:36
+# @Last Modified time: 2017-10-10 22:06:20
 
 
 # this entire script is just gross but almost all of the functionality was
@@ -505,21 +505,20 @@ def condell(archive, item, mateng):
 
     # generate circuit paths (this entire function is so shit)
     if initgate == 'CX':
-        ibmcomb = '2QPT' + '_' + initgate + fingate + '_ibmqx2'
-        ibminit = '2QPT' + '_' + initgate + '_ibmqx2'
+        ibmcomb = '2QPT' + '_' + initgate + fingate + '_ibmqx4'
+        ibminit = '2QPT' + '_' + initgate + '_ibmqx4'
         simfin = '1QPT' + '_' + fingate + '_simulator'
         twoflag = 1
     elif fingate == 'CX':
-        ibmcomb = '2QPT' + '_' + initgate + fingate + '_ibmqx2'
+        ibmcomb = '2QPT' + '_' + initgate + fingate + '_ibmqx4'
         simfin = '2QPT' + '_' + fingate + '_simulator'
-        ibminit = '1QPT' + '_' + initgate + '_ibmqx2'
+        ibminit = '1QPT' + '_' + initgate + '_ibmqx4'
         twoflag = 2
     else:
-        ibmcomb = '1QPT' + '_' + initgate + fingate + '_ibmqx2'
+        ibmcomb = '1QPT' + '_' + initgate + fingate + '_ibmqx4'
         simfin = '1QPT' + '_' + fingate + '_simulator'
-        ibminit = '1QPT' + '_' + initgate + '_ibmqx2'
+        ibminit = '1QPT' + '_' + initgate + '_ibmqx4'
         twoflag = 0
-
     # generate everything from the Kraus set because mapping A form to higher
     # dimensional A form is hard
     if twoflag == 1:
@@ -548,9 +547,9 @@ def condell(archive, item, mateng):
     dist = float(mateng.dnorm(actual, simchoifin))
     return dist
 
+
+
 # flattens a list of lists into a depth one list
-
-
 def listflatten(lists):
     return [item for sublist in lists for item in sublist]
 
@@ -558,22 +557,27 @@ def listflatten(lists):
 # computes distance of a given process tensor from that of the closest markovian process
 # using the chosen distance metric: quantum relative entropy or tracenorm
 # (only included for thoroughness)
-def markovdist(ptensor, subsystems, metric='qre'):
-    # compute dimensionality of sysem (corresponds to number of timesteps)
+def markovdist(ptensor, subsystems, metric='qre', gen=False):
+    # compute dimensionality of system (corresponds to number of timesteps)
     mptensor = 1.0
     # compute perms for later as partial trace deletes elements in subsys -
     # should I change that?
     perms = listflatten(subsystems)
     for item in subsystems:
         mptensor = np.kron(mptensor, itm.partialtrace(ptensor, item))
-
+    
     # permute B form to match reconstructed markovian tensor
     ptensor = subsyspermute(ptensor, perms, [2, 2, 2, 2])
+    #matrix2dat(ptensor, 'permutedsim.dat')
     # compute distance using chosen metric
     if metric == 'qre':
         # compute quantum relative entrop
         from scipy.linalg import logm
-        return np.trace(np.dot(ptensor, (logm(ptensor)/np.log(2) - logm(mptensor)/np.log(2))))
+        dist = np.trace(np.dot(ptensor, (logm(ptensor)/np.log(2) - logm(mptensor)/np.log(2))))
+        if gen:
+            return dist, mptensor
+        else:
+            return dist
     elif metric == 'trnm':
         # compute trace norm
         return tracenorm(ptensor, mptensor)
@@ -596,6 +600,184 @@ def subsyspermute(rho, perm, dims):
     return np.transpose(rho.reshape(dims[-1::-1]*2), perm).reshape(d)
 
 
+# outputs a numpy array to a dat file accessible by mma. 
+def matrix2dat(array, filename):
+    array = np.asarray(np.asmatrix(array).flatten())
+    array.astype('complex128').tofile(filename)
+
+
+# computes the kraus operators given B form of a map
+def choi2kraus(choi):
+    # import singular value decompoisiton library
+    from scipy.linalg import svd
+    # retrieve eigenvectors/eigenvalues
+    U,s,Vh = svd(choi)
+    # get system dimension
+    dim = int(np.log2(len(choi)))
+    kraus = []
+    for col,lam in enumerate(s):
+        operator = np.sqrt(lam)*np.reshape(Vh[col][:],(dim,dim))
+        kraus.append(operator)
+    return kraus
+
+
+# expands a single qubit operator to be applied to a larger space
+def operatorexpand(op, target, total):
+    newop = 1.0
+    for qubit in range(0,total):
+        if target == qubit:
+            newop = np.kron(newop, op)
+        else:
+            newop = np.kron(newop, itm.gatedict['id'])
+    return newop
+
+
+# extends a quantum channel to include identity operations on the larger system
+def choipad(choi, targets, total):
+    # get total system dimensions
+    dim = 2**total
+    # get kraus operators for choi state
+    kraus = choi2kraus(choi)
+    # initialise 
+    newkraus = []
+    for op in kraus:
+        newop = 1.0
+        appflag = False
+        for i in range(0, total):
+            # slot in applied operator
+            if i in targets:
+                if not appflag:
+                    appflag = True
+                    newop = np.kron(newop, op)
+            else:
+                newop = np.kron(newop, itm.gatedict['id'])
+        newkraus.append(newop)
+
+    # compute corresponding B form
+    newchoi = itm.kraus2choi(newkraus)
+    return newchoi
+
+
+
+
+#--------------------------------------------------------------------------
+# PURGATORY
+#--------------------------------------------------------------------------
+
+# determines the CPTP maps that act on the subsystems of a perfect swap gate such that the resultant operation
+# approximates the actual swap. Returns missing aspect in B form
+def purifyswap(archive):
+    # extract Choi states of Swap operation
+    swapactual = archive['2QPT_SWAP_ibmqx2']['Data_Group']['Choi_matrix'][()]
+    swapsim = archive['2QPT_SWAP_simulator']['Data_Group']['Choi_matrix'][()]
+
+    # convert to A form and format for matlab
+    swapactual = itm.numpyarr2matlab(choi2A(swapactual))
+    swapsim = itm.numpyarr2matlab(choi2A(swapsim))
+    swap = itm.numpyarr2matlab(itm.kraus2choi(np.asarray([[[1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]]]), rep='loui'))
+
+    # compute perturbation such that perturb*swap = swapactual
+    mateng = matlab.engine.start_matlab()
+    perturb = itm.numpyarr2matlab(np.asarray(mateng.liouestimate(swap, swapactual)))
+    
+
+    Tkraus = archive['1QPT_T_ibmqx4']['Data_Group']['Kraus_set'][()]
+    Tkraus = [operatorexpand(i, 0, 2) for i in Tkraus]
+    TAform = itm.kraus2choi(Tkraus, rep='loui')
+
+    # fix process in A form
+    fix = np.asarray(mateng.unperturb(perturb, itm.numpyarr2matlab(TAform)))
+
+    #rhoplot(fix*np.dot(np.asarray(perturb),TAform))
+
+    #matrix2dat(fix, 'swapfix.dat')
+
+def processmap(archive, processtensor):
+    # extract choi state of swap gate
+    swapactual = itm.numpyarr2matlab(archive['2QPT_SWAP_ibmqx4']['Data_Group']['Choi_matrix'][()]) 
+    # extract process tensor
+    ptensorbad = itm.numpyarr2matlab(archive[processtensor]['tomography_ML'][()])
+    # pad out choi state to act on 4 qubit state and convert to matlab type
+    swapactualpad = itm.numpyarr2matlab(choipad(swapactual, [1,2], 4))
+    #define perfect swap
+    swap = itm.kraus2choi(np.asarray([[[1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]]]), rep='choi')
+    # initialise matlab engine
+    mateng = matlab.engine.start_matlab()
+    # compute map
+    pmap = np.asarray(mateng.processmap(swapactual, ptensorbad))
+    # apply map to perfect swap
+    ptensor = mapapply(pmap, swap)
+    # plot best guess at correct one
+    #rhoplot(ptensorbad)
+    print(np.trace(np.asarray(ptensor)))
+    # compute QRE of new ptensor
+    print(markovdist(np.asarray(ptensor)/np.trace(ptensor), [[1,2], [0,3]]))
+
+    #rhoplot(np.asarray(ptensor)/np.trace(ptensor))
+    rhoplot(itm.partialtrace(np.asarray(ptensor)/np.trace(ptensor), [1,2]))
+
+def mapapply(pmap, control):
+    # compute dimensionality
+    dim = len(control)
+    # vectorise control operation
+    controlflat = np.reshape(control, [dim**2, 1])
+    # apply map 
+    outstate = np.dot(pmap, controlflat)
+    # reshape and return
+    return np.reshape(outstate, [dim, dim]).T
+
+def choiexport(archive):
+    #retrieve choi states of required dynamics
+    phase       = archive['1QPT_S_ibmqx4']['Data_Group']['Choi_matrix'][()]
+    phasesim    = archive['1QPT_S_simulator']['Data_Group']['Choi_matrix'][()]
+
+    swap        = archive['2QPT_SWAP_ibmqx4']['Data_Group']['Choi_matrix'][()]
+    swapsim     = archive['2QPT_SWAP_simulator']['Data_Group']['Choi_matrix'][()]
+
+    tgate       = archive['1QPT_T_ibmqx4']['Data_Group']['Choi_matrix'][()]
+    tgatesim    = archive['1QPT_T_simulator']['Data_Group']['Choi_matrix'][()]
+
+    ptensor     = archive['ProcessTensorInternalSwap_ibmqx4']['tomography_ML'][()]
+    ptensorsim  = archive['ProcessTensorInternalSwap_simulator']['tomography_ML'][()]
+
+    ptensornorm     = archive['ProcessTensor_ibmqx4']['tomography_ML'][()]
+    ptensornormsim  = archive['ProcessTensor_simulator']['tomography_ML'][()]
+
+    cnot  = archive['2QPT_CX_ibmqx4']['Data_Group']['Choi_matrix'][()]
+    cnotsim  = archive['2QPT_CX20_simulator']['Data_Group']['Choi_matrix'][()]
+
+    had = archive['1QPT_H_ibmqx4']['Data_Group']['Choi_matrix'][()]
+    hadsim = archive['1QPT_H_simulator']['Data_Group']['Choi_matrix'][()]
+
+    pauliX = archive['1QPT_X_ibmqx4']['Data_Group']['Choi_matrix'][()]
+    pauliXsim = archive['1QPT_X_simulator']['Data_Group']['Choi_matrix'][()]
+
+    # store as dat files for mma access
+    #matrix2dat(entangle,    'entangle.dat')
+    #matrix2dat(entanglesim, 'entanglesim.dat')
+    matrix2dat(phase,       'phase.dat')
+    matrix2dat(phasesim,    'phasesim.dat')
+    matrix2dat(swap,        'swap.dat')
+    matrix2dat(swapsim,     'swapsim.dat')
+    matrix2dat(tgate,       'tgate.dat')
+    matrix2dat(tgatesim,    'tgatesim.dat')
+    matrix2dat(ptensor,     'ptensor.dat')
+    matrix2dat(ptensorsim,  'ptensorsim.dat')
+    matrix2dat(ptensornorm,     'ptensornorm.dat')
+    matrix2dat(ptensornormsim,  'ptensornormsim.dat')
+    matrix2dat(cnot,        'cnot.dat')
+    matrix2dat(cnotsim,     'cnotsim.dat')
+    matrix2dat(had,         'had.dat')
+    matrix2dat(hadsim,      'hadsim.dat')
+    matrix2dat(pauliX,      'pauliX.dat')
+    matrix2dat(pauliXsim,   'paulixsim.dat')
+
+
+
+
+
+
+
 #--------------------------------------------------------------------------
 # TO BE IMPLEMENTED
 #--------------------------------------------------------------------------
@@ -606,7 +788,7 @@ def choitensor(archive, circuit, rho):
     pass
 
 
-# extracts the map associated with time step Z in the Sudarshan B form of
+# extracts the map associated with time step k in the Sudarshan B form of
 # the process tensor
 def processextract(archive, circuit, subsystem):
     pass
@@ -616,24 +798,45 @@ def processextract(archive, circuit, subsystem):
 # CURRENTLY WORKING ON
 #--------------------------------------------------------------------------
 
+def correlationplot(archive, circuit):
+    ptensor = archive[circuit]['tomography_ML'][()]
+    perms = [[0,2],[1,3]]
+    mptensor = 1.0
+    for item in perms:
+        mptensor = np.kron(mptensor, itm.partialtrace(ptensor, item))
 
-
-
-
-
-
+    corr = np.corrcoef(ptensor)
+    mcorr = np.corrcoef(mptensor)
+    rhoplot(corr - mcorr)
 #--------------------------------------------------------------------------
+
+
+
+
+
+
 
 if __name__ == '__main__':
     with h5py.File(archivepath, 'a') as archive:
-        ptensor2 = choi2A(archive['ProcessTensorCorrelatedSwap5_simulator']['tomography_ML'][()])
-        ptensor4 = choi2A(archive['ProcessTensorCorrelatedSwap4_simulator']['tomography_ML'][()])
-        mateng = matlab.engine.start_matlab()
-        permute = np.asarray(mateng.permutecompute(itm.numpyarr2matlab(ptensor2),itm.numpyarr2matlab(ptensor4)))
+        #correlationplot(archive, 'ProcessTensorInternalSwap_simulator')
+        #choiexport(archive)
+        #processmap(archive, 'ProcessTensor_ibmqx4')
+        #purifyswap(archive)
+        #mateng = matlab.engine.start_matlab()
+        #array,t,w = itm.processtomography(archive, '1QPT_HH_simulator', mateng)
+        #rhoplot(archive['Entangle_ibmqx4']['Data_Group']['Choi_matrix'][()] - archive['Entangle_simulator']['Data_Group']['Choi_matrix'][()])
+        #matrix2dat(array, 'ASWAPsim.dat')
+        #ptensor2 = choi2A(archive['ProcessTensorCorrelatedSwap5_simulator']['tomography_ML'][()])
+        #ptensor4 = choi2A(archive['ProcessTensorCorrelatedSwap4_simulator']['tomography_ML'][()])
+        #mateng = matlab.engine.start_matlab()
+        #permute = np.asarray(mateng.permutecompute(itm.numpyarr2matlab(ptensor2),itm.numpyarr2matlab(ptensor4)))
         #iden = itm.partialtrace(ptensor, [1,2])
         #SWAP = archive['2QPT_SWAP_simulator']['Data_Group']['Process_matrix'][()]
-    
-        rhoplot(permute)
-        #ptensor = archive['ProcessTensorSimulatedCorrelations_simulator']['tomography_ML'][()]
-        #sgate = archive['1QPT_S_simulator']['Data_Group']['Choi_matrix'][()]
-        #print(markovdist(ptensor, [[1, 2], [0, 3]]))
+        #SWAP = archive['2QPT_SWAP_simulator']['Data_Group']['Process_matrix'][()]
+        #purifyswap(archive)
+        #ptensor = archive['ProcessTensorXX_ibmqx4']['tomography_ML'][()]
+        #rhoplot(ptensor)
+        #print(markovdist(ptensor, [[1,2],[0,3]]))
+        
+        errors, gateset = conditional(archive)
+        condplot(errors, gateset)

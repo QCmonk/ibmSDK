@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-09-20 18:16:04
+# @Last Modified time: 2017-10-16 18:04:35
 
 
 import os
@@ -215,21 +215,24 @@ def tracedist(m1, m2):
 def statetomography_ML(archive, circuit, mateng, goal='state'):
     # create container for target circuit
     statecirc = archive[circuit]
-    # retrieve number of qubits and hence dimensionality of system
-    qubits = len(statecirc.attrs['qubits'])
-
+    # get target qubits
+    qtarg = statecirc.attrs['qubits']
+    # retrieve number of qubits 
+    qubits = len(qtarg)
     if goal == 'state':
         # generate expectation values from dataset
         meas = []
         stoke = []
         for perm in statecirc:
-            # skip raw qasm file
-            if perm == 'raw_qasm':
+            # skip irrelevant datasets
+            if perm == 'raw_qasm' or perm == 'tomography_ML' or perm =='Data_Group':
                 continue
             # retrieve measurement basis for permutation (order is 0:x 1:y z:2)
             meas.append(perm[-qubits:])
-            label = statecirc[perm]['labels']
-            probs = statecirc[perm]['values']
+            # extract relevant qubits
+            label = statecirc[perm]['labels'][()]
+            label = labeltrim(label, qtarg)
+            probs = statecirc[perm]['values'][()]
             stoke.append(stokes(label, probs, meas[-1]))
             # get identity stokes as well
             if '2' in meas[-1]:
@@ -262,14 +265,15 @@ def statetomography_ML(archive, circuit, mateng, goal='state'):
             stoke = []
             permstring = '_' + ''.join(str(t) for t in comb) + '_'
             for perm in statecirc:
-                if perm == 'raw_qasm':
+                if perm == 'raw_qasm' or perm == 'tomography_ML' or perm=='Data_Group':
                     continue
                 # perform regular state tomography on permutation
                 if permstring in perm:
                     # retrieve measurement basis for permutation (order is 0:x
                     # 1:y z:2)
                     meas.append(perm[-qubits:])
-                    label = statecirc[perm]['labels']
+                    label = statecirc[perm]['labels'][()]
+                    label = labeltrim(label, qtarg)
                     probs = statecirc[perm]['values']
                     stoke.append(stokes(label, probs, meas[-1]))
                     # get identity stokes as well
@@ -289,6 +293,17 @@ def statetomography_ML(archive, circuit, mateng, goal='state'):
             density_set.append([permstring[:-1], density])
 
         return density_set
+
+
+# extracts correct labeling
+def labeltrim(labels, qtarg):
+    b = []
+    for i,item in enumerate(labels):
+        b.append('')
+        for j in qtarg:
+            b[i] += item[-1::-1][j]
+        b[i] = b[i][-1::-1]
+    return b
 
 
 def densityplot(archive, circuit, method="ML", save=False):
@@ -377,7 +392,7 @@ def kraus2choi(kraus, rep='choi', targets=1):
         if targets == 1:
             loui += np.kron(i.conj(), i)
         else:
-            loui += np.kron(np.kron(i, np.eye(2)).conj(),np.kron(i, np.eye(2)))
+            loui += np.kron(np.kron(np.eye(2), i).conj(),np.kron(np.eye(2),i))
     # return appropriate representation
     if rep == 'loui':
         return loui
@@ -629,7 +644,7 @@ def betacompute(qubits=2, parallel=True):
 def partialtrace(m, sys):
     # type enforcement
     m = np.asarray(m)
-    # sort subsystems
+    # sort subsystems for my wierd indexing method
     sys = sorted(sys)
     # get tensor dimensions
     qnum = int(round(np.log2(len(m))))
@@ -672,6 +687,7 @@ def choimap(choi, rho):
 
 
 # DANGER FUNCTIONALITY, USE AT OWN RISK
+#---------------------------------------------------------------------------------------
 # deletes a particular item (e.g Data_Group) from every group in root directory
 def _blockdelete(group):
     with h5py.File(archivepath, 'a') as archive: 
@@ -687,7 +703,7 @@ def _shotadd(shotnum=4096):
                 continue
             else:
                 archive[item].attrs['shots'] = shotnum
-
+#---------------------------------------------------------------------------------------
 
 
 # computes distance of a given process tensor from that of the closest markovian process
@@ -705,7 +721,7 @@ def markovdist(ptensor, subsystems, metric='qre'):
         return np.trace(np.dot(ptensor,(logm(ptensor) - logm(mptensor))))
     elif metric == 'trnm':
         # compute trace norm
-        return tracenorm(ptensor, mptensor)
+        return tracedist(ptensor, mptensor)
     else:
         print('Unknown metric')
         return np.inf
@@ -725,21 +741,14 @@ def markovdist(ptensor, subsystems, metric='qre'):
 #--------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    import ibmanalysis as ianal
     #_blockdelete('Data_Group')
-    testing = np.kron([[0.5,-0.5],[-0.5,0.5]],[[0,0],[0,1]])
-    testing = np.kron(testing, testing)
-    print( markovdist(testing, [[0,1], [2,3]]) - testing)
-    # with h5py.File(archivepath, 'a') as archive:
-    # #     # archive.__delitem__('hadamardq0_simulator')
-    #      try:
-    #         import ibmanalysis as ibma
-    #         rho = np.kron(np.asarray([[1,0],[0,0]]),np.asarray([[0,0],[0,1]]))
-    #         choi = archive['2QPT_CX_ibmqx2']['Data_Group']['Choi_matrix']
-    #         ibma.rhoplot(rho)
-    #         ibma.rhoplot(choimap(choi, rho))
-    #      except Exception as e:
-    #         print(e)
-    #         archive.flush()
-    #         archive.close()
-    #         exit()
+    #_blockdelete('tomography_ML')
+    with h5py.File(archivepath, 'a') as archive:    
+        try:
+            tensortomography(archive, ['X','Y','Z','I'])
+        except Exception as e:
+            print(e)
+            archive.flush()
+            archive.close()
 

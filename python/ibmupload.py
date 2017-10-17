@@ -2,7 +2,7 @@
 # @Author: Helios
 # @Date:   2017-07-13 14:20:04
 # @Last Modified by:   Helios
-# @Last Modified time: 2017-09-19 18:25:37
+# @Last Modified time: 2017-10-11 17:58:45
 
 
 import os
@@ -156,22 +156,25 @@ def archiveadd(archive, path, fileparams, shots):
         if dataname in archive:
             # check if still waiting on previous results
             if archive[dataname].attrs['complete'] < archive[dataname].attrs['total']:
-                print('------- PREVIOUS ITERATION OF CIRCUIT {} IS ONGOING: IGNORING RESUBMISSION COMMAND -------'.format(dataname))
+                print(
+                    '------- PREVIOUS ITERATION OF CIRCUIT {} IS ONGOING: IGNORING RESUBMISSION COMMAND -------'.format(dataname))
             else:
-                print('------- CIRCUIT {} HAS ALREADY BEEN UPLOADED: REPEATING EXPERIMENT/ANALYSIS -------'.format(dataname))
-                
+                print(
+                    '------- CIRCUIT {} HAS ALREADY BEEN UPLOADED: REPEATING EXPERIMENT/ANALYSIS -------'.format(dataname))
+
                 # delete tomography related data
                 try:
                     if archive[dataname].attrs['tomography'].decode('ascii') == 'state':
                         archive[dataname].__delitem__('tomography_ML')
-                    elif  archive[dataname].attrs['tomography'].decode('ascii') == 'process':
+                    elif archive[dataname].attrs['tomography'].decode('ascii') == 'process':
                         archive[dataname].__delitem__('tomography_ML')
                         archive[dataname].__delitem__('Data_Group')
                 # fine for now, change to specific error later
                 except Exception:
                     pass
                 # adjust shot number accordingly
-                archive[dataname].attrs['shots'] = archive[dataname].attrs['shots'] + shots 
+                archive[dataname].attrs['shots'] = archive[
+                    dataname].attrs['shots'] + shots
 
                 # set status for circuit reupload
                 for perm in archive[dataname]:
@@ -359,8 +362,10 @@ def batchparse(archive, shots, queuefile='filequeue.txt'):
 
 
 def experimentrun(archive, interface, filename=None, filepath=None, tomography="ML", shots=1024):
-    if qInterface.backend_status('ibmqx2')['available']:
-        print('------- IBM QUANTUM COMPUTER IS ONLINE -------')
+    # get number of credits remaining
+    credits = interface.get_my_credits()['remaining']
+    if qInterface.backend_status('ibmqx4')['available']:
+        print('------- IBM QUANTUM COMPUTER IS ONLINE: {} CREDITS AVAILABLE -------'.format(credits))
         ibmOnline = True
     else:
         print('------- IBM QUANTUM COMPUTER IS OFFLINE: UNABLE TO RUN ON EXPERIMENTAL HARDWARE -------')
@@ -379,7 +384,8 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
         # check if experiment has any circuits awaiting completion for current
         # circuit
         if ccirc.attrs['complete'] < ccirc.attrs['total']:
-            print('------- RETRIEVING MEASUREMENT STATISTICS FOR CIRCUIT: {} -------'.format(circuit))
+            print(
+                '------- RETRIEVING MEASUREMENT STATISTICS FOR CIRCUIT: {} -------'.format(circuit))
             device = ccirc.attrs['device'].decode('ascii')
 
             # iterate over archive circuits, handling status as needed:
@@ -403,25 +409,36 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
                         ccirc[perm].attrs['executionId'].decode('ascii'))
                     # check for null result (computation not done yet)
                     if any(result):
-                        # check if previous result exists and if so, average measurement result
+                        # check if previous result exists and if so, average
+                        # measurement result
                         if 'values' in ccirc[perm]:
 
                             if len(np.asarray(ccirc[perm]['values'][()])) != len(np.asarray(result['measure']['values'])):
-                                print('------- RETURN VALUE DIMENSION MISMATCH for {}: ABORTING -------'.format(perm))
-                                archive.flush()
-                                archive.close()
-                                exit()
-                            else:
-                                newval = 0.5*np.asarray(ccirc[perm]['values'][()]) + 0.5*np.asarray(result['measure']['values'])
+                                print('------- RETURN VALUE DIMENSION MISMATCH for {}: COMPENSATING -------'.format(perm))
+                                #  compute new values
+                                nlabels, nmeas = measurementpad(ccirc[perm]['labels'][()], result['measure'][
+                                                                'labels'], np.asarray(ccirc[perm]['values'][()]), np.asarray(result['measure']['values']))
+                                
+                                # store updated statistics
+                                ccirc[perm].__delitem__('labels')
                                 ccirc[perm].__delitem__('values')
-                                ccirc[perm].create_dataset('values', data=newval)
+                                ccirc[perm].create_dataset('labels', data=np.array(labels, data=object), dtype=h5py.special_dtype(vlen=str))
+                                ccirc[perm].create_dataset('values', data=nmeas)
+                            else:
+                                newval = 0.5 * \
+                                    np.asarray(ccirc[perm]['values'][
+                                               ()]) + 0.5*np.asarray(result['measure']['values'])
+                                ccirc[perm].__delitem__('values')
+                                ccirc[perm].create_dataset(
+                                    'values', data=newval)
 
                         else:
                             # add label data to archive file
                             ccirc[perm].create_dataset('labels', data=np.array(
                                 result['measure']['labels'], dtype=object), dtype=h5py.special_dtype(vlen=str))
                             # add measured probabilities to archive file
-                            ccirc[perm].create_dataset('values', data=result['measure']['values'])
+                            ccirc[perm].create_dataset(
+                                'values', data=result['measure']['values'])
 
                         # set circuit permutation status to complete
                         ccirc[perm].attrs['status'] = 2
@@ -513,7 +530,7 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
                     datagroup.create_dataset('Kraus_set', data=kraus)
                     # add Choi matrix
                     datagroup.create_dataset('Choi_matrix', data=choi)
-                    # add A matrix 
+                    # add A matrix
                     datagroup.create_dataset('A_form', data=aform)
                     # add operator basis used to compute above
                     datagroup.create_dataset(
@@ -525,9 +542,42 @@ def experimentrun(archive, interface, filename=None, filepath=None, tomography="
                     archive.flush()
 
 
+# pads measurement results to avoid measurment mismatch
+def measurementpad(clabels, inlabels, cmeas, inmeas):
+    # initialise new labels and measurements
+    clabels = list(clabels)
+    inlabels = list(inlabels)
+    nlabels = []
+    nmeas = []
+    for j, item in enumerate(inlabels):
+        # check if measurement result already exists
+        try:
+            ind = clabels.index(item)
+            nlabels.append(item)
+            # compute measurement value
+            meas = 0.5*(cmeas[ind] + inmeas[j])
+            nmeas.append(meas)
+        # catch new value
+        except ValueError:
+            # aqdd new value to labels
+            nlabels.append(item)
+            meas = 0.5*inmeas[j]
+            nmeas.append(meas)
+
+    return nlabels, np.asarray(nmeas)
+
+
+
 #--------------------------------------------------------------------------
-# TO BE IMPLEMENTEDb
+# TO BE IMPLEMENTED
 #--------------------------------------------------------------------------
+
+
+
+
+
+
+
 
 
 #--------------------------------------------------------------------------
@@ -552,5 +602,6 @@ if __name__ == '__main__':
         archive.flush()
         archive.close()
 
-    #from gitmanage import gitcommit
-    #gitcommit(os.getcwd())
+    from gitmanage import gitcommit
+    gitcommit(os.getcwd())
+    
