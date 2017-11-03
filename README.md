@@ -1,2 +1,6 @@
 # ibmSDK
-Backup repository for my custom implementation of the IBM Quantum Experience interface. 
+Backup repository for my custom implementation of the IBM Quantum Experience interface. This repositry is ordered according to langauge type. I could not upload the actual master data file as it is now a few hundred megabytes. I believe everything should work out of the box but if you have trouble getting things started then please do not hesitate to contact me. At the very least you should be able to run your own quantum circuit and see how the everything works. You will get a few error messages because it can't find any of the expected files however it should create them in the local directory. To run a circuit on the IBM system add the following string to the 'filequeue.txt' file:
+
+"C:path/to/qasm/circuit/circuitname.qasm;ibmqx4;state;012"
+
+This uploads the circuit 'circuitname.qasm' to the ibmqx4, IBMs 5 qubit quantum computer. More specifically it generates and uploads the 3^3 circuits required to perform 3 qubit state tomography on qubits 0,1,2. You may also do process tomography however you cannot go beyond 2 qubits without at least 32 GB of RAM for the following computation. Additionally you will be running 4^3 * 3^3 = 1700 circuits which will take quite some time (and exceed my credit limit in one go, you will have to wait 24 hours for the remaining circuit runs). 

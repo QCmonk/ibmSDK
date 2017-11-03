@@ -6,5 +6,5 @@ creg c[5];
 
 //PROCESS
 
-y q[0];
-x q[0];
+y q[1];
+x q[1];
